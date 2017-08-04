@@ -20,7 +20,7 @@ public class YourCallRequest extends BaseCallRequest<YourApiResponse> {
 ``` java
 public class YourCallRequest extends BaseCallRequest<YourApiResponse> {
 
-    // just select one to return non-null, getCall or getObservable, it will use getCall if both implements
+    // just select one to return non-null, getCall or getObservable, it will use getCall if both are implements
 
     @Override
     public Call getCall(OkHttpClient okHttpClient) {

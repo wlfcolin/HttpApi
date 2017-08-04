@@ -18,6 +18,9 @@ import rx.Observable;
  */
 public abstract class BaseCallRequest<R> extends ApiCallRequest<R> implements OkHttpRequest, RetrofitRequest<R> {
 
+    public BaseCallRequest() {
+    }
+
     @Override
     public Interceptor getInterceptor() {
         return null;

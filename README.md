@@ -19,6 +19,9 @@ public class YourCallRequest extends BaseCallRequest<YourApiResponse> {
 * 3. Override Call getCall(OkHttpClient okHttpClient) or Observable<R> getObservable(Retrofit retrofit) to implements your request
 ``` java
 public class YourCallRequest extends BaseCallRequest<YourApiResponse> {
+
+    // just select one to return non-null, getCall or getObservable, it will use getCall if both implements
+
     @Override
     public Call getCall(OkHttpClient okHttpClient) {
         return YourCall;

@@ -43,7 +43,7 @@ callRequest.setApiCallback(new SimpleApiCallback<YourApiResponse>() {
 
     @Override
     public boolean canDoCallback() {
-		return !getActivity().isDestroyed();
+        return !getActivity().isDestroyed();
     }
 
     @Override

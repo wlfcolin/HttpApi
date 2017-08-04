@@ -1,0 +1,49 @@
+apply plugin: 'com.android.library'
+
+apply plugin: 'com.aaron.gradle.bintray-release'
+
+android {
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+
+    defaultConfig {
+
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode rootProject.ext.versionCode
+        versionName rootProject.ext.versionName
+    }
+    lintOptions {
+        abortOnError rootProject.ext.abortOnError
+    }
+}
+
+dependencies {
+    compile fileTree(include: ['*.jar'], dir: 'libs')
+    // Retrofit, with OkHttp
+    provided 'com.squareup.retrofit2:retrofit:2.3.0'
+    provided 'com.squareup.retrofit2:converter-gson:2.3.0'
+    // provided 'com.google.code.gson:gson:2.8.1'
+    provided 'com.squareup.retrofit2:adapter-rxjava:2.3.0'
+    // RxAndroid, with RxJava
+    provided 'io.reactivex:rxandroid:1.2.1'
+    // annotations
+    provided "com.android.support:support-annotations:$supportVersion"
+}
+
+// cmd
+// ./gradlew --stacktrace bintrayUpload -PbintrayUser=wlfcolin -PbintrayKey=XXXXXXXXXXXXXX -PdryRun=false
+publish {
+    userOrg = 'wlfcolin'
+    groupId = 'me.andy5'
+    artifactId = 'HttpApi'
+    publishVersion = "$versionName"
+    // archives file('build/outputs/test.jar')
+    desc = 'a wrap api manager of current popular http libs, such as okhttp, it makes then easy to use.'
+    website = 'https://github.com/wlfcolin/HttpApi'
+}
+
+tasks.withType(Javadoc) {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    options.addStringOption('encoding', 'UTF-8')
+}

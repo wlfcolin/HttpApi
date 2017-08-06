@@ -8,7 +8,7 @@ package me.andy5.http_api.api.base;
  * @datetime 2017-06-22 09:49 GMT+8
  * @email 411086563@qq.com
  */
-public abstract class ApiCallRequest<R> {
+public abstract class ApiCallRequest<R> implements CacheKey {
 
     // base url
     private String mBaseUrl;
@@ -64,5 +64,10 @@ public abstract class ApiCallRequest<R> {
 
     public ApiCallback<R> getApiCallback() {
         return mApiCallback;
+    }
+
+    @Override
+    public String getCacheKey() {
+        return mConnectTimeout + "#" + mReadTimeout;
     }
 }

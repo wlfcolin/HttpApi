@@ -54,6 +54,8 @@ public class ApiManager {
     private static ApiManager sInstance;
     // all cancelable requests
     private Map<Object, List<Cancelable>> mCancelableMap = new HashMap<>();
+    // OkHttpClient map
+    private Map<String, OkHttpClient> mOkHttpClientMap = new HashMap<>();
 
     // private constructor
     private ApiManager() {
@@ -128,17 +130,23 @@ public class ApiManager {
         if (interceptor == null) {
             interceptor = new DefaultUserInterceptor();
         }
-        OkHttpClient okHttpClient = new OkHttpClient.Builder()
-                // connect timeout, ms
-                .connectTimeout(request.getConnectTimeout(), TimeUnit.MILLISECONDS)
-                // read timeout, ms
-                .readTimeout(request.getReadTimeout(), TimeUnit.MILLISECONDS)
-                // user interceptor
-                .addInterceptor(interceptor)
-                // log interceptor
-                .addInterceptor(new LogInterceptor())
-                // build
-                .build();
+        String cacheKey = request.getCacheKey();
+        OkHttpClient okHttpClient = mOkHttpClientMap.get(cacheKey);
+        Log.w(TAG, "cacheKey:【" + cacheKey + "】okHttpClient:【" + okHttpClient + "】");
+        if (okHttpClient == null) {
+            okHttpClient = new OkHttpClient.Builder()
+                    // connect timeout, ms
+                    .connectTimeout(request.getConnectTimeout(), TimeUnit.MILLISECONDS)
+                    // read timeout, ms
+                    .readTimeout(request.getReadTimeout(), TimeUnit.MILLISECONDS)
+                    // user interceptor
+                    .addInterceptor(interceptor)
+                    // log interceptor
+                    .addInterceptor(new LogInterceptor())
+                    // build
+                    .build();
+            mOkHttpClientMap.put(cacheKey, okHttpClient);
+        }
         Call call = okHttpRequest.getCall(okHttpClient);
         if (call != null) {
             ApiCall apiCall = new ApiCall(call);
@@ -203,17 +211,23 @@ public class ApiManager {
         if (interceptor == null) {
             interceptor = new DefaultUserInterceptor();
         }
-        OkHttpClient okHttpClient = new OkHttpClient.Builder()
-                // connect timeout, ms
-                .connectTimeout(request.getConnectTimeout(), TimeUnit.MILLISECONDS)
-                // read timeout, ms
-                .readTimeout(request.getReadTimeout(), TimeUnit.MILLISECONDS)
-                // user interceptor
-                .addInterceptor(interceptor)
-                // log interceptor
-                .addInterceptor(new LogInterceptor())
-                // build
-                .build();
+        String cacheKey = request.getCacheKey();
+        OkHttpClient okHttpClient = mOkHttpClientMap.get(cacheKey);
+        Log.w(TAG, "cacheKey:【" + cacheKey + "】okHttpClient:【" + okHttpClient + "】");
+        if (okHttpClient == null) {
+            okHttpClient = new OkHttpClient.Builder()
+                    // connect timeout, ms
+                    .connectTimeout(request.getConnectTimeout(), TimeUnit.MILLISECONDS)
+                    // read timeout, ms
+                    .readTimeout(request.getReadTimeout(), TimeUnit.MILLISECONDS)
+                    // user interceptor
+                    .addInterceptor(interceptor)
+                    // log interceptor
+                    .addInterceptor(new LogInterceptor())
+                    // build
+                    .build();
+            mOkHttpClientMap.put(cacheKey, okHttpClient);
+        }
         Retrofit retrofit = new Retrofit.Builder()
                 // http client
                 .client(okHttpClient)
@@ -227,38 +241,7 @@ public class ApiManager {
                 .build();
         Observable<R> observable = retrofitRequest.getObservable(retrofit);
         if (observable != null) {
-            Subscriber<R> subscriber = new Subscriber<R>() {
-
-                @Override
-                public void onCompleted() {
-                    if (callback != null) {
-                        callback.onCompleted();
-                    }
-                }
-
-                @Override
-                public void onError(Throwable e) {
-                    if (callback != null) {
-                        callback.onFailed(e);
-                    }
-                }
-
-                @Override
-                public void onNext(R result) {
-                    if (callback != null) {
-                        callback.onSucceed(result);
-                    }
-                }
-
-                @Override
-                public void onStart() {
-                    // super.onStart();
-                    if (callback != null) {
-                        callback.onStarted();
-                    }
-                }
-            };
-            ApiSubscriber apiSubscriber = new ApiSubscriber(subscriber);
+            ApiSubscriber apiSubscriber = new ApiSubscriber(callback);
             if (tag != null) {
                 List<Cancelable> cancelables = mCancelableMap.get(tag);
                 if (cancelables == null) {
@@ -324,6 +307,15 @@ public class ApiManager {
         }
     }
 
+    /**
+     * release
+     */
+    public void release() {
+        cancelAllApiRequest();
+        mOkHttpClientMap.clear();
+        sInstance = null;
+    }
+
     // get generic type
     private static Type getGenericTypeParameter(Object genericObj, int position) {
         Type type = null;
@@ -345,39 +337,41 @@ public class ApiManager {
     // Retrofit Api Subscriber
     private static class ApiSubscriber<T> extends Subscriber<T> implements Cancelable {
 
-        private Subscriber<T> mSubscriber;
+        private ApiCallback<T> mApiCallback;
 
-        public ApiSubscriber(@NonNull Subscriber<T> subscriber) {
-            mSubscriber = subscriber;
+        public ApiSubscriber(@NonNull ApiCallback<T> apiCallback) {
+            mApiCallback = apiCallback;
         }
 
         @Override
         public void onStart() {
             // super.onStart();
-            mSubscriber.onStart();
+            mApiCallback.onStarted();
         }
 
         @Override
         public void onCompleted() {
-            mSubscriber.onCompleted();
+            mApiCallback.onCompleted();
         }
 
         @Override
         public void onError(Throwable e) {
-            mSubscriber.onError(e);
+            mApiCallback.onFailed(e);
+            // onError and onCompleted are exclusive in Subscriber
+            onCompleted();
         }
 
         @Override
         public void onNext(T t) {
-            mSubscriber.onNext(t);
+            mApiCallback.onSucceed(t);
         }
 
         @Override
         public void cancel() {
-            if (mSubscriber.isUnsubscribed()) {
+            if (isUnsubscribed()) {
                 return;
             }
-            mSubscriber.unsubscribe();
+            unsubscribe();
         }
     }
 
@@ -485,30 +479,32 @@ public class ApiManager {
         }
     }
 
-    private static String getFullLog(String msg) {
-        int maxLength = 3 * 1024;
-        String result = "";
-        if (msg.length() > maxLength) {
-            for (int i = 0; i < msg.length(); i += maxLength) {
-                if (i + maxLength < msg.length()) {
-                    if (i == 0) {
-                        result = msg.substring(i, i + maxLength);
-                    } else {
-                        result = result + "\n" + msg.substring(i, i + maxLength);
-                    }
-                } else {
-                    if (i == 0) {
-                        result = msg.substring(i, msg.length());
-                    } else {
-                        result = result + "\n" + msg.substring(i, msg.length());
-                    }
-                }
-            }
-        } else {
-            result = msg;
-        }
-        return result;
-    }
+    /**
+     * private static String getFullLog(String msg) {
+     * int maxLength = 3 * 1024;
+     * String result = "";
+     * if (msg.length() > maxLength) {
+     * for (int i = 0; i < msg.length(); i += maxLength) {
+     * if (i + maxLength < msg.length()) {
+     * if (i == 0) {
+     * result = msg.substring(i, i + maxLength);
+     * } else {
+     * result = result + "\n" + msg.substring(i, i + maxLength);
+     * }
+     * } else {
+     * if (i == 0) {
+     * result = msg.substring(i, msg.length());
+     * } else {
+     * result = result + "\n" + msg.substring(i, msg.length());
+     * }
+     * }
+     * }
+     * } else {
+     * result = msg;
+     * }
+     * return result;
+     * }
+     */
 
     // default user interceptor
     private static class DefaultUserInterceptor implements Interceptor {

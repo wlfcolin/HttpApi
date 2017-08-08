@@ -10,7 +10,7 @@ import okhttp3.OkHttpClient;
  * @datetime 2017-06-22 09:26 GMT+8
  * @email 411086563@qq.com
  */
-public interface OkHttpRequest extends InterceptorRequest {
+public interface OkHttpRequest extends OkHttpEngine {
 
     /**
      * get OkHttp Call

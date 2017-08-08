@@ -18,6 +18,8 @@ public abstract class ApiCallRequest<R> implements CacheKey {
     private long mConnectTimeout;
     // read timeout, ms
     private long mReadTimeout;
+    // https info
+    private HttpsInfo mHttpsInfo;
 
     // callback
     private ApiCallback<R> mApiCallback;
@@ -40,6 +42,10 @@ public abstract class ApiCallRequest<R> implements CacheKey {
         mReadTimeout = readTimeout;
     }
 
+    public void setHttpsInfo(HttpsInfo httpsInfo) {
+        mHttpsInfo = httpsInfo;
+    }
+
     public void setApiCallback(ApiCallback<R> apiCallback) {
         mApiCallback = apiCallback;
     }
@@ -60,6 +66,10 @@ public abstract class ApiCallRequest<R> implements CacheKey {
 
     public long getReadTimeout() {
         return mReadTimeout;
+    }
+
+    public HttpsInfo getHttpsInfo() {
+        return mHttpsInfo;
     }
 
     public ApiCallback<R> getApiCallback() {

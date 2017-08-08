@@ -11,7 +11,7 @@ import rx.Observable;
  * @datetime 2017-06-22 09:26 GMT+8
  * @email 411086563@qq.com
  */
-public interface RetrofitRequest<R> extends InterceptorRequest {
+public interface RetrofitRequest<R> extends OkHttpEngine {
 
     /**
      * get Retrofit Observable

@@ -20,14 +20,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLSocketFactory;
+
 import me.andy5.http_api.api.base.ApiCallRequest;
 import me.andy5.http_api.api.base.ApiCallback;
+import me.andy5.http_api.api.base.HttpsInfo;
+import me.andy5.http_api.api.base.OkHttpEngine;
 import me.andy5.http_api.api.base.OkHttpRequest;
 import me.andy5.http_api.api.base.RetrofitRequest;
+import me.andy5.http_api.api.https.HttpsHostNameVerifier;
+import me.andy5.http_api.api.https.HttpsUtil;
 import me.andy5.http_api.operation.base.Cancelable;
 import me.andy5.http_api.util.OkHttpUtil;
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.CookieJar;
+import okhttp3.Dns;
 import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -122,33 +131,96 @@ public class ApiManager {
         return handled;
     }
 
+    // get OkHttpClient
+    private <R> OkHttpClient getOkHttpClient(ApiCallRequest<R> request) {
+        // connectTimeout
+        long connectTimeout = request.getConnectTimeout();
+        // readTimeout
+        long readTimeout = request.getReadTimeout();
+        // Interceptor
+        Interceptor interceptor = null;
+        // Dns
+        Dns dns = null;
+        // CookieJar
+        CookieJar cookieJar = null;
+        // SSLSocketFactory
+        SSLSocketFactory sslSocketFactory = null;
+        // HostnameVerifier
+        HostnameVerifier hostnameVerifier = null;
+
+        if (request instanceof OkHttpEngine) {
+            OkHttpEngine okHttpEngine = (OkHttpEngine) request;
+            interceptor = okHttpEngine.getInterceptor();
+            dns = okHttpEngine.getDns();
+            cookieJar = okHttpEngine.getCookieJar();
+        }
+        HttpsInfo httpsInfo = request.getHttpsInfo();
+        if (httpsInfo != null && httpsInfo.isInit()) {
+            sslSocketFactory = HttpsUtil.getSslSocketFactory(httpsInfo.getNeedTrustServerCerts(), httpsInfo
+                    .getClientBks(), httpsInfo.getClientBksPassword());
+            List<String> notVerifyHostNames = httpsInfo.getNotVerifyHostNames();
+            if (notVerifyHostNames != null && !notVerifyHostNames.isEmpty()) {
+                hostnameVerifier = new HttpsHostNameVerifier(notVerifyHostNames);
+            }
+        }
+
+        OkHttpClient.Builder builder = new OkHttpClient.Builder();
+
+        // connect timeout, ms
+        if (connectTimeout > 0) {
+            builder.connectTimeout(connectTimeout, TimeUnit.MILLISECONDS);
+        }
+        // read timeout, ms
+        if (connectTimeout > 0) {
+            builder.readTimeout(readTimeout, TimeUnit.MILLISECONDS);
+        }
+        // user interceptor
+        if (interceptor != null) {
+            builder.addInterceptor(interceptor);
+        }
+        // dns
+        if (dns != null) {
+            builder.dns(dns);
+        }
+        // cookieJar
+        if (cookieJar != null) {
+            builder.cookieJar(cookieJar);
+        }
+        // sslSocketFactory
+        if (sslSocketFactory != null) {
+            builder.sslSocketFactory(sslSocketFactory);
+        }
+        // hostnameVerifier
+        if (hostnameVerifier != null) {
+            builder.hostnameVerifier(hostnameVerifier);
+        }
+        // log interceptor
+        builder.addInterceptor(new LogInterceptor());
+
+        OkHttpClient okHttpClient = builder.build();
+
+        return okHttpClient;
+    }
+
     // send OkHttp request
     private <R> boolean sendOkHttpRequest(ApiCallRequest<R> request, Object tag) {
-        final ApiCallback<R> callback = request.getApiCallback();
-        OkHttpRequest okHttpRequest = (OkHttpRequest) request;
-        Interceptor interceptor = okHttpRequest.getInterceptor();
-        if (interceptor == null) {
-            interceptor = new DefaultUserInterceptor();
-        }
+
+        // 1. init OkHttpClient
         String cacheKey = request.getCacheKey();
         OkHttpClient okHttpClient = mOkHttpClientMap.get(cacheKey);
+
         Log.w(TAG, "cacheKey:【" + cacheKey + "】okHttpClient:【" + okHttpClient + "】");
+
         if (okHttpClient == null) {
-            okHttpClient = new OkHttpClient.Builder()
-                    // connect timeout, ms
-                    .connectTimeout(request.getConnectTimeout(), TimeUnit.MILLISECONDS)
-                    // read timeout, ms
-                    .readTimeout(request.getReadTimeout(), TimeUnit.MILLISECONDS)
-                    // user interceptor
-                    .addInterceptor(interceptor)
-                    // log interceptor
-                    .addInterceptor(new LogInterceptor())
-                    // build
-                    .build();
+            okHttpClient = getOkHttpClient(request);
             mOkHttpClientMap.put(cacheKey, okHttpClient);
         }
+
+        // 2. register callback
+        OkHttpRequest okHttpRequest = (OkHttpRequest) request;
         Call call = okHttpRequest.getCall(okHttpClient);
         if (call != null) {
+            final ApiCallback<R> callback = request.getApiCallback();
             ApiCall apiCall = new ApiCall(call);
             if (tag != null) {
                 List<Cancelable> cancelables = mCancelableMap.get(tag);
@@ -158,44 +230,8 @@ public class ApiManager {
                 }
                 cancelables.add(apiCall);
             }
-            if (callback != null) {
-                callback.onStarted();
-            }
-            apiCall.enqueue(new Callback() {
-
-                @Override
-                public void onFailure(Call call, IOException e) {
-                    if (callback != null) {
-                        callback.onFailed(e);
-                    }
-                    if (callback != null) {
-                        callback.onCompleted();
-                    }
-                }
-
-                @Override
-                public void onResponse(Call call, Response response) throws IOException {
-                    if (response != null && response.body() != null) {
-                        String body = response.body().string();
-                        if (callback != null) {
-                            // serialize by gson
-                            Type type = getGenericTypeParameter(callback, 0);
-                            if (type == null) {
-                                onFailure(call, new IOException("can not get generic type!"));
-                                return;
-                            }
-                            Gson gson = new Gson();
-                            R result = gson.fromJson(body, type);
-                            callback.onSucceed(result);
-                        }
-                        if (callback != null) {
-                            callback.onCompleted();
-                        }
-                    } else {
-                        onFailure(call, new IOException("response body is empty!"));
-                    }
-                }
-            });
+            OkHttpApiCallback<R> okHttpApiCallback = new OkHttpApiCallback<>(callback);
+            apiCall.enqueue(okHttpApiCallback);
             return true;
         } else {
             // do not handle
@@ -204,30 +240,20 @@ public class ApiManager {
     }
 
     // send Retrofit request
-    private <R> boolean sendRetrofitRequest(final ApiCallRequest<R> request, Object tag) {
-        final ApiCallback<R> callback = request.getApiCallback();
-        RetrofitRequest retrofitRequest = (RetrofitRequest) request;
-        Interceptor interceptor = retrofitRequest.getInterceptor();
-        if (interceptor == null) {
-            interceptor = new DefaultUserInterceptor();
-        }
+    private <R> boolean sendRetrofitRequest(ApiCallRequest<R> request, Object tag) {
+
+        // 1. init OkHttpClient
         String cacheKey = request.getCacheKey();
         OkHttpClient okHttpClient = mOkHttpClientMap.get(cacheKey);
+
         Log.w(TAG, "cacheKey:【" + cacheKey + "】okHttpClient:【" + okHttpClient + "】");
+
         if (okHttpClient == null) {
-            okHttpClient = new OkHttpClient.Builder()
-                    // connect timeout, ms
-                    .connectTimeout(request.getConnectTimeout(), TimeUnit.MILLISECONDS)
-                    // read timeout, ms
-                    .readTimeout(request.getReadTimeout(), TimeUnit.MILLISECONDS)
-                    // user interceptor
-                    .addInterceptor(interceptor)
-                    // log interceptor
-                    .addInterceptor(new LogInterceptor())
-                    // build
-                    .build();
+            okHttpClient = getOkHttpClient(request);
             mOkHttpClientMap.put(cacheKey, okHttpClient);
         }
+
+        // 2. init Retrofit
         Retrofit retrofit = new Retrofit.Builder()
                 // http client
                 .client(okHttpClient)
@@ -239,8 +265,12 @@ public class ApiManager {
                 .baseUrl(request.getBaseUrl())
                 //
                 .build();
+
+        // 3. register callback
+        RetrofitRequest retrofitRequest = (RetrofitRequest) request;
         Observable<R> observable = retrofitRequest.getObservable(retrofit);
         if (observable != null) {
+            ApiCallback<R> callback = request.getApiCallback();
             ApiSubscriber apiSubscriber = new ApiSubscriber(callback);
             if (tag != null) {
                 List<Cancelable> cancelables = mCancelableMap.get(tag);
@@ -316,65 +346,6 @@ public class ApiManager {
         sInstance = null;
     }
 
-    // get generic type
-    private static Type getGenericTypeParameter(Object genericObj, int position) {
-        Type type = null;
-        Type[] types = genericObj.getClass().getGenericInterfaces();
-        if (types != null && types.length > 0) {
-            type = types[0];// only support the genericObj with one argument FIXME
-        }
-        if (type == null) {
-            type = genericObj.getClass().getGenericSuperclass();
-        }
-        if (type instanceof ParameterizedType) {
-            ParameterizedType parameterizedType = (ParameterizedType) type;
-            return $Gson$Types.canonicalize(parameterizedType.getActualTypeArguments()[position]);
-        } else {
-            return null;
-        }
-    }
-
-    // Retrofit Api Subscriber
-    private static class ApiSubscriber<T> extends Subscriber<T> implements Cancelable {
-
-        private ApiCallback<T> mApiCallback;
-
-        public ApiSubscriber(@NonNull ApiCallback<T> apiCallback) {
-            mApiCallback = apiCallback;
-        }
-
-        @Override
-        public void onStart() {
-            // super.onStart();
-            mApiCallback.onStarted();
-        }
-
-        @Override
-        public void onCompleted() {
-            mApiCallback.onCompleted();
-        }
-
-        @Override
-        public void onError(Throwable e) {
-            mApiCallback.onFailed(e);
-            // onError and onCompleted are exclusive in Subscriber
-            onCompleted();
-        }
-
-        @Override
-        public void onNext(T t) {
-            mApiCallback.onSucceed(t);
-        }
-
-        @Override
-        public void cancel() {
-            if (isUnsubscribed()) {
-                return;
-            }
-            unsubscribe();
-        }
-    }
-
     // OkHttp Api Call
     private static class ApiCall implements Call, Cancelable {
 
@@ -417,6 +388,133 @@ public class ApiManager {
         @Override
         public Call clone() {
             return mCall.clone();
+        }
+    }
+
+    // OkHttp Api Callback
+    private static class OkHttpApiCallback<R> implements Callback {
+
+        private ApiCallback<R> mApiCallback;
+
+        public OkHttpApiCallback(ApiCallback<R> apiCallback) {
+            this.mApiCallback = apiCallback;
+            onStarted();
+        }
+
+        private void onStarted() {
+            if (mApiCallback != null) {
+                mApiCallback.onStarted();
+            }
+        }
+
+        private void onCompleted() {
+            if (mApiCallback != null) {
+                mApiCallback.onCompleted();
+            }
+        }
+
+        @Override
+        public void onFailure(Call call, IOException e) {
+            if (mApiCallback != null) {
+                mApiCallback.onFailed(e);
+            }
+            onCompleted();
+        }
+
+        @Override
+        public void onResponse(Call call, Response response) throws IOException {
+            if (response != null && response.body() != null) {
+                // serialize by gson
+                Type type = getGenericTypeParameter(mApiCallback, 0);
+                if (type == null) {
+                    onFailure(call, new IOException("can not get generic type!"));
+                    return;
+                }
+                Gson gson = new Gson();
+                String body = response.body().string();
+                R result = gson.fromJson(body, type);
+                if (mApiCallback != null) {
+                    mApiCallback.onSucceed(result);
+                }
+                onCompleted();
+            } else {
+                onFailure(call, new IOException("response body is empty!"));
+            }
+        }
+    }
+
+    // get generic type
+    private static Type getGenericTypeParameter(Object genericObj, int position) {
+        Type type = null;
+        Type[] types = genericObj.getClass().getGenericInterfaces();
+        if (types != null && types.length > 0) {
+            type = types[0];// only support the genericObj with one argument FIXME
+        }
+        if (type == null) {
+            type = genericObj.getClass().getGenericSuperclass();
+        }
+        if (type instanceof ParameterizedType) {
+            ParameterizedType parameterizedType = (ParameterizedType) type;
+            return $Gson$Types.canonicalize(parameterizedType.getActualTypeArguments()[position]);
+        } else {
+            return null;
+        }
+    }
+
+    // Retrofit Api Subscriber
+    private static class ApiSubscriber<T> extends Subscriber<T> implements Cancelable {
+
+        private ApiCallback<T> mApiCallback;
+
+        public ApiSubscriber(@NonNull ApiCallback<T> apiCallback) {
+            mApiCallback = apiCallback;
+        }
+
+        @Override
+        public void onStart() {
+            // super.onStart();
+            if (mApiCallback != null) {
+                mApiCallback.onStarted();
+            }
+        }
+
+        @Override
+        public void onCompleted() {
+            if (mApiCallback != null) {
+                mApiCallback.onCompleted();
+            }
+        }
+
+        @Override
+        public void onError(Throwable e) {
+            if (mApiCallback != null) {
+                mApiCallback.onFailed(e);
+            }
+            // onError and onCompleted are exclusive in Subscriber
+            onCompleted();
+        }
+
+        @Override
+        public void onNext(T t) {
+            if (mApiCallback != null) {
+                mApiCallback.onSucceed(t);
+            }
+        }
+
+        private void onCanceled() {
+            if (mApiCallback != null) {
+                mApiCallback.onCanceled();
+            }
+        }
+
+        @Override
+        public void cancel() {
+            if (isUnsubscribed()) {
+                return;
+            }
+            unsubscribe();
+            onCanceled();
+            onCompleted();
         }
     }
 
@@ -506,11 +604,4 @@ public class ApiManager {
      * }
      */
 
-    // default user interceptor
-    private static class DefaultUserInterceptor implements Interceptor {
-        @Override
-        public Response intercept(Chain chain) throws IOException {
-            return chain.proceed(chain.request());
-        }
-    }
 }

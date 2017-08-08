@@ -7,7 +7,7 @@ a wrap api manager of current popular http libs, such as okhttp, it makes then e
 **Quick start**
 * 1. add in dependencies in your app module's build.gradle
 ``` java
-compile 'me.andy5:HttpApi:0.3.0'
+compile 'me.andy5:HttpApi:0.4.0'
 ```
 
 * 2. create a CallRequest extends BaseCallRequest

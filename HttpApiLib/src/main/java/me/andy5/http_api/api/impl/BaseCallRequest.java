@@ -1,5 +1,7 @@
 package me.andy5.http_api.api.impl;
 
+import com.google.gson.Gson;
+
 import me.andy5.http_api.api.base.ApiCallRequest;
 import me.andy5.http_api.api.base.OkHttpRequest;
 import me.andy5.http_api.api.base.RetrofitRequest;
@@ -23,6 +25,7 @@ public abstract class BaseCallRequest<R> extends ApiCallRequest<R> implements Ok
     private Interceptor mInterceptor;
     private Dns mDns;
     private CookieJar mCookieJar;
+    private Gson mGson;
 
     public BaseCallRequest() {
     }
@@ -40,6 +43,11 @@ public abstract class BaseCallRequest<R> extends ApiCallRequest<R> implements Ok
     @Override
     public void setCookieJar(CookieJar cookieJar) {
         mCookieJar = cookieJar;
+    }
+
+    @Override
+    public void setGson(Gson gson) {
+        mGson = gson;
     }
 
     @Override
@@ -65,5 +73,10 @@ public abstract class BaseCallRequest<R> extends ApiCallRequest<R> implements Ok
     @Override
     public Observable<R> getObservable(Retrofit retrofit) {
         return null;
+    }
+
+    @Override
+    public Gson getGson() {
+        return mGson;
     }
 }

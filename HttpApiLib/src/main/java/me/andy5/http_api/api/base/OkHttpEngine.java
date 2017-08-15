@@ -1,5 +1,7 @@
 package me.andy5.http_api.api.base;
 
+import com.google.gson.Gson;
+
 import okhttp3.CookieJar;
 import okhttp3.Dns;
 import okhttp3.Interceptor;
@@ -19,9 +21,13 @@ public interface OkHttpEngine {
 
     void setCookieJar(CookieJar cookieJar);
 
+    void setGson(Gson gson);
+
     Interceptor getInterceptor();
 
     Dns getDns();
 
     CookieJar getCookieJar();
+
+    Gson getGson();
 }

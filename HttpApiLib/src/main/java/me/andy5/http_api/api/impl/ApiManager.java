@@ -202,6 +202,19 @@ public class ApiManager {
         return okHttpClient;
     }
 
+    // get Gson
+    @NonNull
+    private <R> Gson getGson(ApiCallRequest<R> request) {
+        Gson gson = null;
+        if (request instanceof OkHttpEngine) {
+            gson = ((OkHttpEngine) request).getGson();
+        }
+        if (gson == null) {
+            gson = new GsonBuilder().serializeNulls().setLenient().create();
+        }
+        return gson;
+    }
+
     // send OkHttp request
     private <R> boolean sendOkHttpRequest(ApiCallRequest<R> request, Object tag) {
 
@@ -230,7 +243,7 @@ public class ApiManager {
                 }
                 cancelables.add(apiCall);
             }
-            OkHttpApiCallback<R> okHttpApiCallback = new OkHttpApiCallback<>(callback);
+            OkHttpApiCallback<R> okHttpApiCallback = new OkHttpApiCallback<>(getGson(request), callback);
             apiCall.enqueue(okHttpApiCallback);
             return true;
         } else {
@@ -258,7 +271,7 @@ public class ApiManager {
                 // http client
                 .client(okHttpClient)
                 // converter factory
-                .addConverterFactory(GsonConverterFactory.create(new GsonBuilder().setLenient().create()))
+                .addConverterFactory(GsonConverterFactory.create(getGson(request)))
                 // call adapter factory
                 .addCallAdapterFactory(RxJavaCallAdapterFactory.create())
                 // base url
@@ -394,9 +407,11 @@ public class ApiManager {
     // OkHttp Api Callback
     private static class OkHttpApiCallback<R> implements Callback {
 
+        private Gson mGson;
         private ApiCallback<R> mApiCallback;
 
-        public OkHttpApiCallback(ApiCallback<R> apiCallback) {
+        public OkHttpApiCallback(@NonNull Gson gson, ApiCallback<R> apiCallback) {
+            this.mGson = gson;
             this.mApiCallback = apiCallback;
             onStarted();
         }
@@ -424,19 +439,22 @@ public class ApiManager {
         @Override
         public void onResponse(Call call, Response response) throws IOException {
             if (response != null && response.body() != null) {
-                // serialize by gson
-                Type type = getGenericTypeParameter(mApiCallback, 0);
-                if (type == null) {
-                    onFailure(call, new IOException("can not get generic type!"));
-                    return;
+                try {
+                    // serialize by gson
+                    Type type = getGenericTypeParameter(mApiCallback, 0);
+                    if (type == null) {
+                        onFailure(call, new IOException("can not get generic type!"));
+                        return;
+                    }
+                    String body = response.body().string();
+                    R result = mGson.fromJson(body, type);
+                    if (mApiCallback != null) {
+                        mApiCallback.onSucceed(result);
+                    }
+                    onCompleted();
+                } catch (Exception e) {
+                    onFailure(call, new IOException(e));
                 }
-                Gson gson = new Gson();
-                String body = response.body().string();
-                R result = gson.fromJson(body, type);
-                if (mApiCallback != null) {
-                    mApiCallback.onSucceed(result);
-                }
-                onCompleted();
             } else {
                 onFailure(call, new IOException("response body is empty!"));
             }
